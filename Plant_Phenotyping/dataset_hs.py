@@ -1642,31 +1642,12 @@ class LeafDataset(Dataset):
             new_label = (np.where(self.label_mapping == l)[0]).item()
             labels[i] = new_label
 
-        print("Labels:", self.label_mapping)
-        print("Num Classes:", self.num_classes)
         if split >= 0:
-            train_index, test_index = self.split_data(data, labels, cv_n_splits, split)
+            train_index, test_index = self.split_data_by_ids(data, labels, split)
         else:
             train_index, test_index = range(len(labels)), range(len(labels))
         if mode == 'train':
             indices = train_index
-            if balanced:
-                labels_tmp = np.array(labels)[indices]
-                class_counts = np.zeros([self.num_classes], dtype=int)
-                for c in range(self.num_classes):
-                    class_counts[c] = len(labels_tmp[labels_tmp == c])
-                min_class_count = np.min(class_counts)
-
-                indices_ = list()
-                for c in range(self.num_classes):
-                    tmp = indices[labels_tmp == c][:min_class_count].squeeze().tolist()
-                    indices_ += tmp
-
-                indices = np.array(indices_, dtype=int)
-                # labels_tmp = np.array(labels)[indices_]
-                # class_counts = np.zeros([self.num_classes], dtype=int)
-                # for c in range(self.num_classes):
-                #    class_counts[c] = len(labels_tmp[labels_tmp == c])
         elif mode == 'eval':
             indices = test_index
         elif mode == 'test':
@@ -1717,7 +1698,7 @@ class LeafDataset(Dataset):
             res = sample
         return res, (label_dai, label_type, 0, meta), idx
 
-    def split_data(self, data, labels, cv_n_splits, split):
+    def split_data_newSplit(self, data, labels, cv_n_splits, split):
         data_2ndday = [d for d in data if "2,Z" in d[4]]
         labels_2ndday = [d for idx, d in enumerate(labels) if "2,Z" in data[idx][4]]
 
@@ -1728,6 +1709,7 @@ class LeafDataset(Dataset):
 
         train_index_all, test_index_all = [], []
         train_tmp = []
+
         for idx_train in train_index:
             leaf_id_along_days = data_2ndday[idx_train][4][2:]
             train_tmp += [leaf_id_along_days]
@@ -1740,6 +1722,22 @@ class LeafDataset(Dataset):
             selected_ids = [idx for idx in range(len(data)) if leaf_id_along_days in data[idx][4]]
             assert len(selected_ids) <= 5
             test_index_all += selected_ids
+
+        assert len(data) == len(train_index_all) + len(test_index_all)
+
+        return train_index_all, test_index_all
+
+    def split_data_by_ids(self, data, labels, split):
+        train_ids = np.loadtxt("./Plant_Phenotyping/hs_dataset_splits/cv{}/train.txt".format(split), dtype=str).tolist()
+        test_ids = np.loadtxt("./Plant_Phenotyping/hs_dataset_splits/cv{}/val.txt".format(split), dtype=str).tolist()
+
+        indices = np.arange(0, len(labels))
+        train_index_all, test_index_all = [], []
+        for idx in indices:
+            if data[idx][4] in train_ids:
+                train_index_all += [idx]
+            if data[idx][4] in test_ids:
+                test_index_all += [idx]
 
         assert len(data) == len(train_index_all) + len(test_index_all)
 
@@ -2009,57 +2007,6 @@ class LeafDataset(Dataset):
         return memmap_file, label_mask, data, min_value, max_value, id_object
 
 
-def _test_dataset():
-    import spectral
-
-    # patch: False -> pixels
-    # use_labels: [0] -> healthy leafs
-    data_type = "VNIR"
-    path = '/media/disk2/datasets/deepplant/data/parsed_data/Z/' + data_type
-    # VNIR: patch_length = 105
-    # SWIR: patch_length = 37
-    # path = '/media/disk2/datasets/deepplant/data/parsed_data/Z/SWIR'
-    patch = True
-    dataset = LeafDataset(data_path=path, patch_length=213, patch=patch, single_image=True, preload_center_crop=0,
-                          use_labels=None, use_files=[14], n_shots=[25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
-                          mask_background=0)
-    if type == 'SWIR':
-        rgb_channels = [24, 51, 118]
-    else:
-        rgb_channels = [50, 88, 151]
-    print("Size train dataset:", len(dataset))
-    # plt.show()
-    data_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)
-    print(len(dataset))
-    for x, y, _ in data_loader:
-        for sample_idx, sample in enumerate(x):
-            sample = sample.cpu().detach().numpy()
-            sample = np.transpose(sample, (1, 2, 0))
-            label = y[1].cpu().detach().numpy().squeeze()
-            print(sample.shape)
-            print(label.shape)
-            # print(y[-1][-2:])
-            print('id', y[-1][-1], 'dai:', y[0])
-            if patch:
-                view = spectral.imshow(sample, bands=rgb_channels, classes=label, title=y[-1][-1])
-                # view.set_display_mode('overlay')
-                # view.class_alpha = 0.5
-                sample_pixel = sample[117, 188, :]
-                plt.figure()
-                plt.plot(np.arange(0, len(sample_pixel)), sample_pixel)
-                plt.show()
-                print(sample_pixel)
-                input("Press key")
-                plt.clf()
-                plt.close()
-            else:
-                plt.plot(np.arange(0, len(sample)), sample)
-                plt.show()
-            # plt.imshow(sample[:, :, rgb_channels])
-            # plt.show()
-            # 1 / 0
-
-
 def mlab_imshowColor(im, alpha=255, **kwargs):
     from mayavi import mlab
     """
@@ -2159,50 +2106,42 @@ def _show_cube_with_images(cube, rgb_channels):
     # im.actor.scale = [.5, .5, .5]
 
     mlab.show()
-    1 / 0
+    exit()
 
 
-def _show_cube():
-    import scipy.io
-    # patch: False -> pixels
-    # use_labels: [0] -> healthy leafs
+def test():
     data_type = "VNIR"
     path = '/media/disk2/datasets/deepplant/data/parsed_data/Z/' + data_type
-    # VNIR: patch_length = 105
-    # SWIR: patch_length = 37
-    # path = '/media/disk2/datasets/deepplant/data/parsed_data/Z/SWIR'
-    patch = True
-    dataset = LeafDataset(data_path=path, patch_length=213, patch=patch, single_image=True, preload_center_crop=0,
-                          use_labels=None, use_files=[8], n_shots=[25], mask_background=0,
-                          step_wavelength=5, clip_wavelength=64)
-    if type == 'SWIR':
-        rgb_channels = [24, 51, 118]
-    else:
-        rgb_channels = [50, 88, 151]
-    print("Size train dataset:", len(dataset))
-    # plt.show()
-    data_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)
-    print(len(dataset))
-    for x, y, _ in data_loader:
-        for sample_idx, sample in enumerate(x):
-            sample = sample.cpu().detach().numpy()
-            sample = np.transpose(sample, (1, 2, 0))
-            label = y[1].cpu().detach().numpy().squeeze()
-            print(sample.shape)
-            print(label.shape)
-            # print(y[-1][-2:])
-            print('id', y[-1][-1], 'dai:', y[0])
-            if patch:
-                # spectral.imshow(sample)
-                # input("press key")
-                scipy.io.savemat('/media/disk2/datasets/deepplant/data/parsed_data/Z/sample.mat', {'data': sample})
-                # _show_cube_with_images(sample, rgb_channels)
-            else:
-                plt.plot(np.arange(0, len(sample)), sample)
-                plt.show()
-            # plt.imshow(sample[:, :, rgb_channels])
-            # plt.show()
-            # 1 / 0
+
+    train_dataset = LeafDataset(data_path=path,
+                                patch_length=213,
+                                patch=True,
+                                single_image=True,
+                                use_labels=None,
+                                preload_center_crop=0,
+                                n_shots=-1,
+                                use_negative=0,
+                                binary_dai=True, fiveD=True,
+                                step_wavelength=5, clip_wavelength=64,
+                                mask_background=0,
+                                split=0,
+                                cv_n_splits=5,
+                                )
+
+    val_dataset = LeafDataset(data_path=path,
+                              patch_length=213,
+                              patch=True,
+                              single_image=True,
+                              use_labels=None,
+                              preload_center_crop=0,
+                              n_shots=-1,
+                              use_negative=0,
+                              mode='eval', binary_dai=True, fiveD=True,
+                              step_wavelength=5, clip_wavelength=64,
+                              mask_background=0,
+                              split=0,
+                              cv_n_splits=5,
+                              )
 
 if __name__ == '__main__':
-    _show_cube()
+    test()
