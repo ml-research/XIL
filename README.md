@@ -10,7 +10,7 @@ Please get in touch with the corresponding authors.
 ## Revising of Scientific dataset
 Default Training:
 ```
-python3 classification/HyperspecConv/train.py 
+python3 Plant_Phenotyping/train_hs.py
     --data_path <path/to/data> 
     --save_path=<path> 
     --gpus=0,1,2,3 -b 10 --lr 0.0001 -j 5 --mask 0 --cv_splits 5 --cv_current_split 0
@@ -18,7 +18,7 @@ python3 classification/HyperspecConv/train.py
 ```
 Revising:
 ```
-python3 classification/HyperspecConv/train.py
+python3 Plant_Phenotyping/train_hs.py
     --data_path <path/to/data> 
     --save_path=<path> 
     --gpus=0,1,2,3 -b 10 --lr 0.0001 -j 5 --mask 2 --l2_grad=20 --cv_splits 5 --cv_current_split 0 
@@ -26,7 +26,7 @@ python3 classification/HyperspecConv/train.py
 ```
 Evaluating:
 ```
-python3 classification/HyperspecConv/train.py
+python3 Plant_Phenotyping/train_hs.py
     --data_path <path/to/data> 
     --save_path=<path/tmp> 
     --resume=<path/model.pth.tar>
