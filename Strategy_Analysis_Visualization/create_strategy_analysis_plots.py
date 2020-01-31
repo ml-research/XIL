@@ -7,7 +7,7 @@ to decide for a class.
 
 Usage example:
 
-python create_final_plots.py --mask --rrr --l2-grads 8 --norm --image-type 'rgb' --metric 'cityblock'
+python create_strategy_analysis_plots.py
 
 """
 # disable multithreading
