@@ -43,6 +43,6 @@ python3 Plant_Phenotyping/train_hs.py
     --gradcam -b 10 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
 ```
 
-TODO:
+## TODO:
 - Add RRR training on RGB images
 - Add example RRR on DecoyMNIST
