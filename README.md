@@ -30,8 +30,8 @@ python3 Plant_Phenotyping/train_hs.py
     --data_path <path/to/data> 
     --save_path=<path/tmp> 
     --resume=<path/model.pth.tar>
-    --gpus=0,1,2,3
-    --evaluate -b 10 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
+    --gpus=0
+    --evaluate -b 4 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
 ```
 Creating Explanations:
 ```
@@ -39,8 +39,8 @@ python3 Plant_Phenotyping/train_hs.py
     --data_path <path/to/data> 
     --save_path=<path/tmp> 
     --resume=<path/model.pth.tar>
-    --gpus=0,1,2,3
-    --gradcam -b 10 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
+    --gpus=0
+    --gradcam -b 1 --mask=0 --cv_splits=5 --cv_current_split=0
 ```
 
 ## TODO:
