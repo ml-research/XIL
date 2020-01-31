@@ -7,7 +7,7 @@ Hans-Georg Luigs, Anne-Katrin Mahlein & Kristian Kersting.
 TODO License \
 Please get in touch with the corresponding authors.
 
-## Revising of Scientific dataset
+## Revising of Scientific dataset (Hyperspectral)
 Default Training:
 ```
 python3 Plant_Phenotyping/train_hs.py
@@ -32,4 +32,13 @@ python3 Plant_Phenotyping/train_hs.py
     --resume=<path/model.pth.tar>
     --gpus=0,1,2,3
     --evaluate -b 10 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
+```
+Creating Explanations:
+```
+python3 Plant_Phenotyping/train_hs.py
+    --data_path <path/to/data> 
+    --save_path=<path/tmp> 
+    --resume=<path/model.pth.tar>
+    --gpus=0,1,2,3
+    --gradcam -b 10 -j 5 --mask=0 --cv_splits=5 --cv_current_split=0
 ```
