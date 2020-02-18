@@ -10,7 +10,7 @@ Please get in touch with the corresponding authors.
 ## Revising of Scientific dataset
 Default Training:
 ```
-python3 Plant_Phenotyping/train_hs.py
+python3 Plant_Phenotyping/main_hs.py
     --data_path <path/to/data> 
     --save_path=<path> 
     --gpus=0,1,2,3 -b 10 --lr 0.0001 -j 5 --mask 0 --cv_splits 5 --cv_current_split 0
@@ -18,7 +18,7 @@ python3 Plant_Phenotyping/train_hs.py
 ```
 Revising:
 ```
-python3 Plant_Phenotyping/train_hs.py
+python3 Plant_Phenotyping/main_hs.py
     --data_path <path/to/data> 
     --save_path=<path> 
     --gpus=0,1,2,3 -b 10 --lr 0.0001 -j 5 --mask 2 --l2_grad=20 --cv_splits 5 --cv_current_split 0 
@@ -26,7 +26,7 @@ python3 Plant_Phenotyping/train_hs.py
 ```
 Evaluating:
 ```
-python3 Plant_Phenotyping/train_hs.py
+python3 Plant_Phenotyping/main_hs.py
     --data_path <path/to/data> 
     --save_path=<path/tmp> 
     --resume=<path/model.pth.tar>
@@ -35,7 +35,7 @@ python3 Plant_Phenotyping/train_hs.py
 ```
 Creating Explanations:
 ```
-python3 Plant_Phenotyping/train_hs.py
+python3 Plant_Phenotyping/main_hs.py
     --data_path <path/to/data> 
     --save_path=<path/tmp> 
     --resume=<path/model.pth.tar>
@@ -44,5 +44,4 @@ python3 Plant_Phenotyping/train_hs.py
 ```
 
 ## TODO:
-- Add RRR training on RGB images
 - Add example RRR on DecoyMNIST
