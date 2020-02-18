@@ -1632,8 +1632,7 @@ class LeafDataset(Dataset):
         except ValueError:
             raise ValueError("No data available for this configuration.")
 
-        self._load_background_masks(data_path=os.path.join(os.path.dirname(os.path.dirname(data_path)),
-                                                           "background_labels_by_spn"))
+        self._load_background_masks(data_path=os.path.join(data_path, "background_labels"))
         labels = np.array(labels)
         # labels_type = np.array([l[0] for l in labels])
         self.num_classes = len(np.unique(labels))
@@ -1851,11 +1850,9 @@ class LeafDataset(Dataset):
             d = np.clip(d, 0., 1.)
         return d
 
-    def _load_background_masks(self,
-                               data_path="/media/disk2/datasets/deepplant/data/parsed_data/background_labels_by_spn"):
+    def _load_background_masks(self, data_path="./Plant_Phenotyping/background_labels"):
         import glob
         from skimage.morphology import convex_hull_image, disk, closing, erosion
-        import collections
 
         self.background_masks = dict()
         background_mask_filename = os.path.join(data_path, "preprocessed_masks.pyu")
@@ -1866,21 +1863,8 @@ class LeafDataset(Dataset):
                     mask = self.background_masks[key].astype("float")
                     mask = cv2.resize(mask, (13, 13))
                     self.background_masks[key] = mask.astype("int")
-            return
-        self.files = sorted(glob.glob(os.path.join(data_path, "*.patrick")))
-        for mask_file in tqdm(self.files):
-            mask = pickle.load(open(mask_file, "rb"))
-            mask = erosion(mask, disk(8))
-            mask = closing(mask, disk(10))
-            mask = convex_hull_image(mask, tolerance=1e-10)
-            mask = erosion(mask, disk(5))
-            self.background_masks[os.path.basename(mask_file).replace(".patrick", "")] = mask
-            """plt.imshow(mask)
-            plt.show()
-            plt.clf()
-            plt.close()"""
-        if not os.path.isfile(background_mask_filename):
-            pickle.dump(self.background_masks, open(background_mask_filename, "wb"))
+        else:
+            raise ValueError("segmentation not found")
 
     def _load_data(self, root_path, single_image=False, use_labels=None, use_files=None, n_shots=-1):
         memmap_dict = dict()
@@ -2110,9 +2094,7 @@ def _show_cube_with_images(cube, rgb_channels):
 
 
 def test():
-    data_type = "VNIR"
-    path = '/media/disk2/datasets/deepplant/data/parsed_data/Z/' + data_type
-
+    path = 'path/data'
     train_dataset = LeafDataset(data_path=path,
                                 patch_length=213,
                                 patch=True,
