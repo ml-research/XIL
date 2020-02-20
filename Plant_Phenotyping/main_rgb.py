@@ -6,7 +6,7 @@ Usage example:
 
 for training with rrr and l2 weight 1:
 
-CUDA_VISIBLE_DEVICES=3 python3 main_rgb.py --lr 0.00005 --batch-size 32 --n-epochs 10 --n-rotations 1 --n-cvruns 5 --cv-run 2 --norm --rrr --l2-grads 1 --train
+CUDA_VISIBLE_DEVICES=3 python3 main_rgb.py --lr 0.00005 --batch-size 32 --n-epochs 10 --n-rotations 1 --n-cvruns 5 --cv-run 2 --norm --rrr --l2-grads 1 --train --fp-save path/to/save --fp-data path/to/data
 
 for generating grad cams from a specific model:
 
@@ -78,6 +78,10 @@ parser.add_argument('--gen-cams', action='store_true', default=False,
                     help='whether to normalize the data')
 parser.add_argument('--cp-fname', type=str, default='',
                     help='the name of the model checkpoint')
+parser.add_argument('--fp-data', type=str, required=True,
+                    help='please specifiy the path to the data folder')
+parser.add_argument('--fp-save', type=str, required=True,
+                    help='please specifiy the path to the folder in which files will be saved')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -104,14 +108,6 @@ def create_args():
     else:
         args.device = 'cpu'
 
-    # filepath to masks
-    if args.rrr:
-        args.fp_mask = "/datasets/dataset_zuckerruebe_Patrick/images_rgb/orig_rgb/preprocessed_masks.pyu"
-        train_config = "rrr/"
-    else:
-        args.fp_mask = None # if the model is not to be trained using the masks
-        train_config = "default/"
-
     args.reduction = torch.sum
 
     if args.norm:
@@ -121,21 +117,17 @@ def create_args():
 
     # extension for file saving
     if not args.rrr:
-        args.mask_ext = "default/"
+        args.fp_mask = None # if the model is not to be trained using the masks
+        args.train_config = "default"
     else:
-        args.fp_mask = "/datasets/dataset_zuckerruebe_Patrick/images_rgb/orig_rgb/preprocessed_masks.pyu" # otherwise
-
+        args.fp_mask = os.path.join(args.fp_data, "preprocessed_masks.pyu")
         if args.l2_grads == 0.1:
-            args.mask_ext = "rrr_l2grads_01_/"
+            args.train_config = "rrr_l2grads_01"
         else:
-            args.mask_ext = "rrr_l2grads_"+str(int(args.l2_grads)) + "/"
+            args.train_config = f"rrr_l2grads_{int(args.l2_grads)}"
 
-    # file paths to relevant folders
-    args.fp_data = "/datasets/dataset_zuckerruebe_Patrick/images_rgb/rgb_new/"
-    args.fp_model = "/datasets/dataset_zuckerruebe_Patrick/model_checkpoints/" + args.model_name + "/"
-
-    args.fp_save = args.fp_model + "num_classes_" + str(args.num_classes) + "/" + train_config + \
-                   args.norm_ext
+    args.fp_save = os.path.join(args.fp_save, args.model_name, f"num_classes_{args.num_classes}",
+                                args.train_config, args.norm_ext)
 
     print("\nCurrent argument parameters: \n")
     print("\n".join("{}: {}".format(k, v) for k, v in vars(args).items()))
@@ -456,7 +448,7 @@ def run_training():
     the model is trained for the number epochs per cross validation set as well as
     tested. The accuracies and models are saved.
     """
-    print("\nRunning with model: {} {}\n".format(args.model_name, args.mask_ext))
+    print("\nRunning with model: {} {}\n".format(args.model_name, args.train_config))
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
