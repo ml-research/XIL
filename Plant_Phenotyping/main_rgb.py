@@ -10,7 +10,7 @@ CUDA_VISIBLE_DEVICES=3 python3 main_rgb.py --lr 0.00005 --batch-size 32 --n-epoc
 
 for generating grad cams from a specific model:
 
-CUDA_VISIBLE_DEVICES=3 python3 main_rgb.py --lr 0.00005 --batch-size 32 --n-epochs 10 --n-rotations 1 --n-cvruns 5 --cv-run 2 --norm --rrr --l2-grads 1 --gen-cams --cp-fname 'vgg_cvnum_2_epoch_1_evalbalacc_5000_trainraloss_8.8632_trainrrrloss_3.9064_besttestacc.pth'
+CUDA_VISIBLE_DEVICES=3 python3 main_rgb.py --lr 0.00005 --batch-size 32 --n-epochs 10 --n-rotations 1 --n-cvruns 5 --cv-run 2 --norm --rrr --l2-grads 1 --gen-cams --fp-save path/to/save --fp-data path/to/data --cp-fname 'vgg_cvnum_2_epoch_1_evalbalacc_5000_trainraloss_8.8632_trainrrrloss_3.9064_besttestacc.pth'
 
 """
 # disable multithreading
@@ -33,8 +33,11 @@ import pandas as pd
 import torchvision.models as models
 import time
 import matplotlib.pyplot as plt
+from scipy import ndimage as ndi
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CyclicLR, StepLR, MultiStepLR
+from PIL import ImageEnhance
 from torch import nn
+from skimage import feature
 from sklearn import preprocessing
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
@@ -65,7 +68,7 @@ parser.add_argument('--n-rotations', type=int, default=1, metavar='N',
 parser.add_argument('--n-cvruns', type=int, default=1, metavar='N',
                     help='the number of cross validation splits')
 parser.add_argument('--cv-run', type=int, default=1, metavar='N',
-                    help='the current cross validation split, must be between 0 and n-cvruns')
+                    help='the current cross validation split, must be between 0 and (n-cvruns - 1)')
 parser.add_argument('--l2-grads', type=float, default=1, metavar='N',
                     help='regularization parameter for the right reasons part in rrr loss')
 parser.add_argument('--rrr', action='store_true', default=False,
@@ -73,7 +76,9 @@ parser.add_argument('--rrr', action='store_true', default=False,
 parser.add_argument('--norm', action='store_true', default=False,
                     help='whether to normalize the data')
 parser.add_argument('--train', action='store_true', default=False,
-                    help='whether to normalize the data')
+                    help='whether to run the training process on the data')
+parser.add_argument('--test', action='store_true', default=False,
+                    help='whether to evaluate the performance of a model checkpoint on the test data')
 parser.add_argument('--gen-cams', action='store_true', default=False,
                     help='whether to normalize the data')
 parser.add_argument('--cp-fname', type=str, default='',
@@ -98,6 +103,11 @@ torch.set_num_threads(4)
 def create_args():
     if args.gen_cams & (args.cp_fname is None):
         raise AssertionError('please specify the name of the model checkpoint file to use for generating the cams!')
+    if args.test & (args.cp_fname is None):
+        raise AssertionError('please specify the name of the model checkpoint file to use for evaluating!')
+    if args.train & args.test:
+        raise AssertionError('please specify either train or test, the model is automatically evaluated in the '
+                             'training process')
 
     args.num_classes = 2
 
@@ -120,7 +130,8 @@ def create_args():
         args.fp_mask = None # if the model is not to be trained using the masks
         args.train_config = "default"
     else:
-        args.fp_mask = os.path.join(args.fp_data, "preprocessed_masks.pyu")
+        # args.fp_mask = os.path.join(args.fp_data, "plant_hs/background_labels/preprocessed_masks.pyu")
+        args.fp_mask = "/datasets/dataset_zuckerruebe_Patrick/images_rgb/orig_rgb/preprocessed_masks.pyu"
         if args.l2_grads == 0.1:
             args.train_config = "rrr_l2grads_01"
         else:
@@ -131,7 +142,52 @@ def create_args():
 
     print("\nCurrent argument parameters: \n")
     print("\n".join("{}: {}".format(k, v) for k, v in vars(args).items()))
-    input("\nAre the parameters correct? Press enter to start...\n")
+    # input("\nAre the parameters correct? Press enter to start...\n")
+
+
+def get_data():
+    """
+    Loads all filenames of the rgb images, and the relevant train test split, according to args.cv_run.
+
+    :return:
+        filenames_allfiles: list of strings, containing the file path to each data sample
+        y: list of ints, indicating whether a sample is healthy or sick
+    """
+    # list of filenames
+    filenames_allfiles = np.array([name for name in glob.glob(args.fp_data + "[1-5]/*")])
+
+    # get label list
+    y = []
+    for fname in filenames_allfiles:
+        fname = fname.split(".JPEG")[0].split("/")[-1].replace("_", ",")
+        y.append(get_dai_label(fname))
+    y = np.array(y)
+    y[y > 0] = 1
+
+    return filenames_allfiles, y
+
+
+def get_data_split(filenames_allfiles):
+    """
+    Loads the relevant train test split, according to args.cv_run.
+    :param filenames_allfiles: list of strings, containing the file path to each data sample
+    :return:
+        train_index: list of ints, indicating which file name in filenames_allfiles belongs to a training sample
+        test_index: list of ints, indicating which file name in filenames_allfiles belongs to a test sample
+        train_sample: list of strings, containing the sample id of all training samples
+        test_index: list of strings, containing the sample id of all test samples
+    """
+    # list of train and test sample ids for corresponding cv run
+    with open(f"rgb_dataset_splits/train_{args.cv_run}.txt") as f:
+        train_samples = f.read().splitlines()
+    with open(f"rgb_dataset_splits/test_{args.cv_run}.txt") as f:
+        test_samples = f.read().splitlines()
+
+    # find indices of training and test samples given list of all files
+    train_index = [i for i, fname in enumerate(filenames_allfiles) if fname.split('/')[-1].split('.')[0] in train_samples]
+    test_index = [i for i, fname in enumerate(filenames_allfiles) if fname.split('/')[-1].split('.')[0] in test_samples]
+
+    return train_index, test_index, train_samples, test_samples
 
 
 def set_parameter_requires_grad(model, feature_extracting):
@@ -310,47 +366,13 @@ def test(model, test_loader, criterion, verbose=0):
     return test_loss, test_acc
 
 
-def plot_losses(ra_loss, rr_loss, train_acc, test_acc):
-    fp_figures = args.fp_save+"loss_figures/cvnum_"+str(args.cv_run)+"/"
-    try:
-        os.makedirs(fp_figures)
-        print("Creating directory: ", fp_figures)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
-
-    fig = plt.figure()
-    plt.plot(rr_loss)
-    plt.plot(ra_loss)
-    plt.yscale('log')
-    plt.title('Right Answer and Reason Loss')
-    plt.legend(['rrr', 'ra'])
-    fig.savefig(fp_figures+"RA_RRLoss.jpg")
-    plt.close()
-
-    fig = plt.figure()
-    plt.plot(train_acc)
-    plt.plot(test_acc)
-    plt.title('Balanced Accuracies (Train and Test)')
-    plt.legend(['Train', 'Test'])
-    fig.savefig(fp_figures+"BalACC.jpg")
-    plt.close()
-
-    np.save(fp_figures+"ra_loss.npy", ra_loss)
-    np.save(fp_figures+"rr_loss.npy", rr_loss)
-    np.save(fp_figures+"train_acc.npy", train_acc)
-    np.save(fp_figures+"test_acc.npy", test_acc)
-
-
 def gen_cams():
     """
-    Generate the gradcams of all data given the filepath to a checkpoint, args.cp_fname.
+    Generate the gradcams of all test data given the filepath to a checkpoint, args.cp_fname.
     """
     # load previous model dictionary
     state_dict = torch.load(args.fp_save + args.cp_fname)
     std_scaler = state_dict['std_scaler']
-
-    # test_sample_ids = state_dict['test_ids']
 
     # load model
     model, _, model_params = load_model(num_classes=args.num_classes, feature_extract=False, use_pretrained=True)
@@ -359,25 +381,25 @@ def gen_cams():
         model.cuda()
     print("The model was loaded from checkpoint")
 
-    # list of filenames
-    filenames_allfiles = np.array([name for name in glob.glob(args.fp_data + "/[1-5]/*")])
-    y = []
-    for fname in filenames_allfiles:
-        fname = fname.split(".JPEG")[0].split("/")[-1].replace("_", ",")
-        y.append(get_dai_label(fname))
-    y = np.array(y)
-    y[y > 0] = 1
+    filenames_allfiles, y = get_data()
 
-    x_data, y, perm_ids = imread_from_fp_rescale_rotate_flatten(fplist=filenames_allfiles, y=y,
-                                                                rescale_size=224,
-                                                                n_rot_per_img=0)
+    # load and permutate data
+    filenames_allfiles, x_data, y, perm_ids = imread_from_fp_rescale_rotate_flatten(
+        fplist=filenames_allfiles, y=y,
+        rescale_size=224, n_rot_per_img=0
+    )
+
+    # get split from corresponding cv run, based on permutated filenames_allfiles
+    train_index, test_index, train_samples, test_samples = get_data_split(filenames_allfiles)
+
+    # only get test data for generating gradcams
+    filenames_allfiles = filenames_allfiles[test_index]
+    y = y[test_index]
+    x_data = x_data[test_index]
+
     orig_imgs = []
     for fname in filenames_allfiles:
         orig_imgs.append(Image.open(fname).resize((224, 224), Image.ANTIALIAS))
-
-    # permutate array of original images and filenames in same way as x and y data was permutated
-    orig_imgs = [orig_imgs[i] for i in perm_ids]
-    filenames_allfiles = filenames_allfiles[perm_ids]
 
     print("Stdscaler being applied ...")
     x_norm = reshape_flattened_to_tensor_rgb(std_scaler.transform(x_data), width_height=224)
@@ -385,8 +407,8 @@ def gen_cams():
     # create tensors for dataloaders
     tmp_tensors = (torch.tensor(x_norm), torch.tensor(y))
 
-    test_dataset = CustomRGBDataset(tensors=tmp_tensors)
-    tmp_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+    tmp_dataset = CustomRGBDataset(tensors=tmp_tensors)
+    tmp_loader = torch.utils.data.DataLoader(tmp_dataset, batch_size=1)
 
     fp_cvrun = args.fp_save + 'gradcams/cvnum_' + args.cp_fname.split('cvnum_')[-1].split('_')[0] + '/'
 
@@ -402,6 +424,18 @@ def gen_cams():
 
     model.eval()
     for i, (data, y) in enumerate(tmp_loader):
+        # convert orig img to edge img
+        # Generate noisy image of a square
+        im_orig = np.array(orig_imgs[i])[:, :, 1]
+        im = preprocessing.scale(np.array(im_orig, dtype=float) / 255)
+        im = ndi.gaussian_filter(im, 4)
+        # Compute the Canny filter for two values of sigma
+        edges1 = feature.canny(im, sigma=3)
+        edges1 = Image.fromarray(np.uint8(np.invert(edges1) * 255), 'L')
+
+        enhancer = ImageEnhance.Brightness(orig_imgs[i])
+        orig_img = enhancer.enhance(1.8)
+
         x = data[0].float()
 
         if args.cuda:
@@ -429,10 +463,10 @@ def gen_cams():
         fp_cam = os.path.join(fp_cvrun + 'day_' + str(tmp[-2]) + '/',
                           f_name + '_y_' + str(y) + '_ypred_' + str(y_pred) + '_Cam_Heatmap')
 
-        save_class_activation_images(orig_imgs[i], cam, fp_cam + '.png',
+        save_class_activation_images(orig_img, cam, fp_cam + '.png',
                                      file_name=f_name,
                                      true_class=y,
-                                     pred_class=y_pred)
+                                     pred_class=y_pred, edge_img=edges1)
 
         np.save(fp_cam + '.npy', cam)
 
@@ -466,64 +500,60 @@ def run_training():
     #--------------------------------------------------------------------------------------------------------------#
     # Data loading and preprocessing
 
-    # list of filenames
-    filenames_allfiles = np.array([name for name in glob.glob(args.fp_data + "/[1-5]/*")])
-    y = []
-    for fname in filenames_allfiles:
-        fname = fname.split(".JPEG")[0].split("/")[-1].replace("_", ",")
-        y.append(get_dai_label(fname))
-    y = np.array(y)
-    y[y > 0] = 1
+    filenames_allfiles, y = get_data()
 
-    # get only filenames from tuesday, as only day with every sample ID
-    filenames_allfiles_tuesday = np.array([name for name in glob.glob(args.fp_data + "/2/*")])
-    y_tuesday = []
-    for fname in filenames_allfiles_tuesday:
-        fname = fname.split(".JPEG")[0].split("/")[-1].replace("_", ",")
-        y_tuesday.append(get_dai_label(fname))
-    y_tuesday = np.array(y_tuesday)
-    y_tuesday[y_tuesday > 0] = 1
+    # # get only filenames from tuesday, as only day with every sample ID
+    # filenames_allfiles_tuesday = np.array([name for name in glob.glob(args.fp_data + "2/*")])
+    # y_tuesday = []
+    # for fname in filenames_allfiles_tuesday:
+    #     fname = fname.split(".JPEG")[0].split("/")[-1].replace("_", ",")
+    #     y_tuesday.append(get_dai_label(fname))
+    # y_tuesday = np.array(y_tuesday)
+    # y_tuesday[y_tuesday > 0] = 1
+    #
+    # # create shufflesplit object, based only on tuesday first
+    # rs = StratifiedShuffleSplit(n_splits=args.n_cvruns, test_size=0.25, random_state=args.seed)
+    #
+    # cv_splits = [[train_index, test_index] for train_index, test_index in rs.split(filenames_allfiles_tuesday, y_tuesday)]
+    #
+    # # get the desired cv split
+    # train_index, test_index = cv_splits[args.cv_run]
+    #
+    # # now put all filenames of the plant ids previously put into train and test also into overall train and test
+    # # i.e. plant Z1_0_0_0 from train_index will be in train_index_all regardless of the day, so 1-5
+    # train_index_all = []
+    # test_index_all = []
+    # for idx in train_index:
+    #     fname = filenames_allfiles_tuesday[idx]
+    #     plant_id = fname.split('/2_')[-1]
+    #     train_index_all += [i for i in range(len(filenames_allfiles)) if plant_id in filenames_allfiles[i]]
+    # for idx in test_index:
+    #     fname = filenames_allfiles_tuesday[idx]
+    #     plant_id = fname.split('/2_')[-1]
+    #     test_index_all += [i for i in range(len(filenames_allfiles)) if plant_id in filenames_allfiles[i]]
+    #
+    # train_index = train_index_all
+    # test_index = test_index_all
+    #
+    # train_samples = [fname.split('/')[-1].split('.')[0] for fname in filenames_allfiles[train_index]]
+    # test_samples = [fname.split('/')[-1].split('.')[0] for fname in filenames_allfiles[test_index]]
 
-    # create shufflesplit object, based only on tuesday first
-    rs = StratifiedShuffleSplit(n_splits=args.n_cvruns, test_size=0.25, random_state=args.seed)
-
-    cv_splits = [[train_index, test_index] for train_index, test_index in rs.split(filenames_allfiles_tuesday, y_tuesday)]
-
-    # get the desired cv split
-    train_index, test_index = cv_splits[args.cv_run]
-
-    # now put all filenames of the plant ids previously put into train and test also into overall train and test
-    # i.e. plant Z1_0_0_0 from train_index will be in train_index_all regardless of the day, so 1-5
-    train_index_all = []
-    test_index_all = []
-    for idx in train_index:
-        fname = filenames_allfiles_tuesday[idx]
-        plant_id = fname.split('/2_')[-1]
-        train_index_all += [i for i in range(len(filenames_allfiles)) if plant_id in filenames_allfiles[i]]
-    for idx in test_index:
-        fname = filenames_allfiles_tuesday[idx]
-        plant_id = fname.split('/2_')[-1]
-        test_index_all += [i for i in range(len(filenames_allfiles)) if plant_id in filenames_allfiles[i]]
-
-    train_index = train_index_all
-    test_index = test_index_all
-
-    train_samples = [fname.split('/')[-1].split('.')[0] for fname in filenames_allfiles[train_index]]
-    test_samples = [fname.split('/')[-1].split('.')[0] for fname in filenames_allfiles[test_index]]
-
+    # load and permutate data
+    # load data and permutate
     if not args.rrr:
-        x_data, y, perm_ids = imread_from_fp_rescale_rotate_flatten(fplist=filenames_allfiles, y=y,
-                                                                    rescale_size=224,
-                                                                    n_rot_per_img=args.n_rotations)
+        filenames_allfiles, x_data, y, perm_ids = imread_from_fp_rescale_rotate_flatten(
+            fplist=filenames_allfiles, y=y,
+            rescale_size=224, n_rot_per_img=args.n_rotations
+        )
     else:
         print("Loading masks as well ...")
-        x_data, masks, y, perm_ids = imread_from_fp_rescale_rotate_flatten_returnmasks(fplist=filenames_allfiles,
-                                                                                       fp_mask=args.fp_mask,
-                                                                                       y=y,
-                                                                                       rescale_size=224,
-                                                                                       n_rot_per_img=args.n_rotations,
-                                                                                       rrr=args.rrr,
-                                                                                       model=args.model_name)
+        filenames_allfiles, x_data, masks, y, perm_ids = imread_from_fp_rescale_rotate_flatten_returnmasks(
+            fplist=filenames_allfiles, fp_mask=args.fp_mask, y=y, rescale_size=224,
+            n_rot_per_img=args.n_rotations, rrr=args.rrr, model=args.model_name
+        )
+
+    # get split from corresponding cv run, based on permutated filenames_allfiles
+    train_index, test_index, train_samples, test_samples = get_data_split(filenames_allfiles)
 
     print("Images read")
     print("Size of data:" + str(sys.getsizeof(x_data) * 1e-9) + " GB")
@@ -630,7 +660,7 @@ def run_training():
             bal_acc_train_array[epoch - 1] = epoch_train_acc
 
         with torch.set_grad_enabled(False):
-            # print("Evaluation running...")
+            print("Evaluation running...")
             epoch_test_loss, epoch_test_acc = test(model, test_loader, criterion_test, verbose=0)
             print("Epoch: {} Test Loss : {:.4f}  Test Accuracy: {:.4f}".format(epoch, epoch_test_loss, epoch_test_acc))
 
@@ -648,8 +678,6 @@ def run_training():
                           'epoch': epoch,
                           'test_loss': epoch_test_loss,
                           'test_acc': epoch_test_acc,
-                          'train_ids': train_samples,
-                          'test_ids': test_samples
                           }
 
             if epoch > 1:
@@ -667,7 +695,7 @@ def run_training():
             torch.save(checkpoint, last_checkpoint_fp)
 
             # if the test acc is higher than any model before store this model seperately
-            if epoch_test_acc > last_test_acc:
+            if epoch_test_acc > last_test_acc and not args.rrr:
                 if epoch > 1:
                     # delete last best model
                     os.remove(last_best_checkpoint_fp)
@@ -683,15 +711,68 @@ def run_training():
                 last_test_acc = epoch_test_acc
                 print("Saving new best model...")
 
-    plot_losses(raloss_array, rrloss_array, bal_acc_train_array, bal_acc_test_array)
-
     print("\nTraining " + args.model_name + " finished\n-------------------------------------------\n")
+
+
+def run_test():
+    """
+    Evaluate the model indicated in the model checkpoint path
+    """
+    # load previous model dictionary
+    state_dict = torch.load(args.fp_save + args.cp_fname)
+    std_scaler = state_dict['std_scaler']
+
+    # load model
+    model, _, model_params = load_model(num_classes=args.num_classes, feature_extract=False, use_pretrained=True)
+    model.load_state_dict(state_dict['model_state'], strict=True)
+    if args.cuda:
+        model.cuda()
+    print("The model was loaded from checkpoint")
+
+    filenames_allfiles, y = get_data()
+
+    # load and permutate data
+    filenames_allfiles, x_data, y, perm_ids = imread_from_fp_rescale_rotate_flatten(
+        fplist=filenames_allfiles, y=y,
+        rescale_size=224, n_rot_per_img=0
+    )
+
+    # get split from corresponding cv run, based on permutated filenames_allfiles
+    train_index, test_index, train_samples, test_samples = get_data_split(filenames_allfiles)
+
+    print("StandardScaler being fit using training data...")
+    std_scaler = preprocessing.StandardScaler()
+    std_scaler = std_scaler.fit(x_data[train_index, :])
+
+    print("StandardScaler transform being applied ...")
+    x_norm = reshape_flattened_to_tensor_rgb(std_scaler.transform(x_data), width_height=224)
+
+    #--------------------------------------------------------------------------------------------------------------#
+    # Setting up Dataloaders
+
+    # create tensors for dataloaders
+    test_tensors = (torch.tensor(x_norm[test_index, :, :, :]), torch.tensor(y[test_index]))
+
+    test_dataset = CustomRGBDataset(tensors=test_tensors)
+    test_loader = torch.utils.data.DataLoader(test_dataset,
+                                              batch_size=args.batch_size)
+
+    print('Data successfully loaded ...')
+
+    #--------------------------------------------------------------------------------------------------------------#
+    # compute prediciton on test set
+
+    _, test_acc = test(model, test_loader, criterion_test, verbose=0)
+
+    print(f"Test accuracy of cv run {args.cv_run}: {test_acc:.4f}")
 
 
 def main():
     create_args()
     if args.train:
         run_training()
+    elif args.test:
+        run_test()
     if args.gen_cams:
         gen_cams()
 

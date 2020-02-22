@@ -48,13 +48,21 @@ from utils import get_dai_label
 
 sns.set(style='ticks', palette='Set2')
 sns.despine()
-rc('text', usetex=True)
+# rc('text', usetex=True)
+
+parser = argparse.ArgumentParser(description='PyTorch CNNs')
+parser.add_argument('--fp-data', type=str, required=True,
+                    help='please specifiy the path to the data folder containing the npy files of the gradcams')
+parser.add_argument('--dtype', type=str, required=True,
+                    help='please specifiy which data type was used: rgb or hs')
+parser.add_argument('--config', type=str, required=True,
+                    help='please specifiy which training configuration was used: default or rrr')
+args = parser.parse_args()
+
 #----------------------------------------------------------------------------------------------------------------------#
 
 seed = 42
 np.random.seed(seed)
-
-FP_ORIG_IMGS = "/home/schramowski/datasets/deepplant/data/parsed_data/Z/VNIR/rgb_new/"
 
 FACTOR_DOWNSCALE = 5
 NUM_SUBPLOT_ITEMS = 8
@@ -70,7 +78,8 @@ CMAP = 'viridis'
 #----------------------------------------------------------------------------------------------------------------------#
 
 
-def visualize_scatter_with_images_clusters(X_2d_data, images, fp, cluster_ids, figsize=(45,45), image_zoom=1):
+def visualize_scatter_with_images_clusters(X_2d_data, images, fp, cluster_ids, figsize=(45,45), image_zoom=1,
+										   legend=False):
 	"""
 	Creates a scatter plot with images plotted rather than
 	points. Around each image is a space colored by the cluster.
@@ -88,7 +97,8 @@ def visualize_scatter_with_images_clusters(X_2d_data, images, fp, cluster_ids, f
 	for i in np.arange(0, k):
 		ids = np.where((cluster_ids == i))
 		scatter = plt.scatter(X_2d_data[ids, 0], X_2d_data[ids, 1], s=20000, alpha=0.8)
-	plt.legend(['cluster ' + str(i) for i in np.arange(k)], prop={'size': 40})
+	if legend:
+		plt.legend(['cluster ' + str(i) for i in np.arange(k)], prop={'size': 40})
 
 	artists = []
 	for xy, i in zip(X_2d_data, images):
@@ -130,7 +140,7 @@ def load_data(filenames, image_type):
 		# cam_class
 		info_array[idx, 0] = int(tmp[6])
 		# dai
-		info_array[idx, 1] = get_dai_label(fname.split(".")[0].split("/")[-1].replace("_", ","))
+		info_array[idx, 1] = get_dai_label(fname.split(".npy")[0].split("/")[-1].split('_class')[0].replace("_", ","))
 		# true label
 		info_array[idx, 2] = int(tmp[8])
 		# predicted label
@@ -261,23 +271,21 @@ def get_filenames(image_type, loss_type):
 	"""
 	if 'rgb' in image_type:
 		if 'default' in loss_type:
-			fp_cams = "path_to_default_rgb_gradcams"
-			fp_save = "affinity_matrices/rgb_default_nclusters_affinity.npy"
+			fp_save = "results/affinity_matrices/rgb_default_nclusters_affinity.npy"
 		elif 'rrr' in loss_type:
-			fp_cams = "path_to_rrr_rgb_gradcams"
-			fp_save = "affinity_matrices/rgb_rrr_nclusters_affinity.npy"
+			fp_save = "results/affinity_matrices/rgb_rrr_nclusters_affinity.npy"
 	elif 'hs' in image_type:
 		if 'default' in loss_type:
-			fp_cams = "path_to_default_hs_gradcams"
-			fp_save = "affinity_matrices/hs_default_nclusters_affinity.npy"
+			fp_save = "results/affinity_matrices/hs_default_nclusters_affinity.npy"
 		elif 'rrr' in loss_type:
-			fp_cams = "path_to_rrr_hs_gradcams"
-			fp_save = "affinity_matrices/hs_rrr_nclusters_affinity.npy"
+			fp_save = "results/affinity_matrices/hs_rrr_nclusters_affinity.npy"
+
+	fp_cams = args.fp_data
 
 	filenames = []
 	for cam_class in np.arange(0, 2):
 		filenames.append(name for name in
-						 glob.glob(fp_cams + "*_class_" + str(cam_class) + "_*_ypred_" + str(cam_class) + "*.npy"))
+						 glob.glob(fp_cams + "day_[1-5]/*_class_" + str(cam_class) + "_*_ypred_" + str(cam_class) + "*.npy"))
 	filenames = np.array([item for sublist in filenames for item in sublist])
 
 	return filenames, fp_save
@@ -291,7 +299,7 @@ def compute_save_affinity_matrices():
 	"""
 	print("------------------------------------------------")
 	# create the directory for the data
-	dir_name = "affinity_matrices/"
+	dir_name = "results/affinity_matrices/"
 	try:
 		os.makedirs(dir_name)
 		print("Creating directory: ", dir_name)
@@ -299,31 +307,29 @@ def compute_save_affinity_matrices():
 		if e.errno != errno.EEXIST:
 			raise
 
-	configs = [['rgb', 'default'], ['rgb', 'rrr'], ['hs', 'default'], ['hs', 'rrr']]
-	for config in configs:
-		image_type = config[0]
-		loss_type = config[1]
-		print("Compute affinity matrix for {} and {}".format(image_type, loss_type))
-		filenames, fp_save = get_filenames(image_type, loss_type)
-		_, _, _, _, _, cams_downscaled, _ = load_data(filenames, image_type)
-		print(len(filenames))
-		# as in Von Luxburg, 2007
-		n_nn = int(np.log(len(filenames)))
-		affinity_matrix = compute_affinity_matrix(cams_downscaled, n_nn, image_type)
+	image_type = args.dtype
+	loss_type = args.config
+	print("Compute affinity matrix for {} and {}".format(image_type, loss_type))
+	filenames, fp_save = get_filenames(image_type, loss_type)
+	_, _, _, _, _, cams_downscaled, _ = load_data(filenames, image_type)
+	print(len(filenames))
+	# as in Von Luxburg, 2007
+	n_nn = int(np.log(len(filenames)))
+	affinity_matrix = compute_affinity_matrix(cams_downscaled, n_nn, image_type)
 
-		# as in Von Luxburg, 2007
-		n_nn = int(np.log(len(filenames)))
+	# as in Von Luxburg, 2007
+	n_nn = int(np.log(len(filenames)))
 
-		# auto_spectral_clustering, get number of clusters
-		k, eigenvalues = predict_k(affinity_matrix)
+	# auto_spectral_clustering, get number of clusters
+	k, eigenvalues = predict_k(affinity_matrix)
 
-		print("{} clusters estimated".format(k))
+	print("{} clusters estimated".format(k))
 
-		data_dict = {'n_clusters': k, 'affinity': affinity_matrix}
+	data_dict = {'n_clusters': k, 'affinity': affinity_matrix}
 
-		with open(fp_save, 'wb') as handle:
-			pickle.dump(data_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
-		print("Affinity matrix for {} and {} saved at {}".format(image_type, loss_type, fp_save))
+	with open(fp_save, 'wb') as handle:
+		pickle.dump(data_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+	print("Affinity matrix for {} and {} saved at {}".format(image_type, loss_type, fp_save))
 
 
 def create_save_image_embedded_tsne_plots():
@@ -334,56 +340,62 @@ def create_save_image_embedded_tsne_plots():
 	"""
 	print("------------------------------------------------")
 	# create the directory for the figures
-	dir_name = "figures/"
-	try:
-		os.makedirs(dir_name)
-		print("Creating directory: ", dir_name)
-	except OSError as e:
-		if e.errno != errno.EEXIST:
-			raise
+	dir_names = ["figures/", "results/cluster_assignments/"]
+	for dir_name in dir_names:
+		try:
+			os.makedirs(dir_name)
+			print("Creating directory: ", dir_name)
+		except OSError as e:
+			if e.errno != errno.EEXIST:
+				raise
 
-	configs = [['rgb', 'default'], ['rgb', 'rrr'], ['hs', 'default'], ['hs', 'rrr']]
-	for config in configs:
-		image_type = config[0]
-		loss_type = config[1]
-		filenames, fp_affinity = get_filenames(image_type, loss_type)
-		_, cams, _, cams_mean, cams_mean_downscaled, cams_downscaled, _ = load_data(filenames, image_type)
-		with open(fp_affinity, 'rb') as handle:
-			data_dict = pickle.load(handle)
+	image_type = args.dtype
+	loss_type = args.config
 
-		k = data_dict['n_clusters']
-		affinity_matrix = data_dict['affinity']
+	filenames, fp_affinity = get_filenames(image_type, loss_type)
+	_, cams, _, cams_mean, cams_mean_downscaled, cams_downscaled, _ = load_data(filenames, image_type)
+	with open(fp_affinity, 'rb') as handle:
+		data_dict = pickle.load(handle)
 
-		print("Creating plots for {} and {} with {} clusters".format(image_type, loss_type, k))
+	k = data_dict['n_clusters']
+	affinity_matrix = data_dict['affinity']
 
-		# t-SNE embedding 2D
-		cams_embedded = TSNE(n_components=2, random_state=seed, metric='precomputed',
-							 perplexity=PERPLEXITY,
-							 early_exaggeration=EARLY_EXAGGERATION).fit_transform(1 / (affinity_matrix.todense() + EPS))
+	print("Creating plots for {} and {} with {} clusters".format(image_type, loss_type, k))
 
-		print("T-SNE complete")
+	# t-SNE embedding 2D
+	cams_embedded = TSNE(n_components=2, random_state=seed, metric='precomputed',
+						 perplexity=PERPLEXITY,
+						 early_exaggeration=EARLY_EXAGGERATION).fit_transform(1 / (affinity_matrix.todense() + EPS))
 
-		# SC clustering
-		cl_model = SpectralClustering(n_clusters=k, affinity='precomputed', assign_labels="kmeans",
-									  random_state=seed, n_jobs=NJOBS).fit(affinity_matrix)
+	print("T-SNE complete")
 
-		cl_labels = np.array(cl_model.labels_.astype(np.int))
+	# SC clustering
+	cl_model = SpectralClustering(n_clusters=k, affinity='precomputed', assign_labels="kmeans",
+								  random_state=seed, n_jobs=NJOBS).fit(affinity_matrix)
 
-		print("Clustering complete")
+	cl_labels = np.array(cl_model.labels_.astype(np.int))
 
-		fp_save_ext = concatenate_list_data(fp_affinity.split('/')[-1].split('.')[0].split('_nclusters_affinity')[0])
-		fp_save = "figures/" + fp_save_ext + "_image_embedded_tsne_colored.png"
+	with open(f"results/cluster_assignments/{image_type}_{loss_type}.txt", "w") as output:
+		for i, fname in enumerate(filenames):
+			output.write(f"{fname.split('.npy')[0].split('/')[-1].split('_class')[0]}   {cl_labels[i]}\n")
 
-		if 'rgb' in image_type:
-			# scatter plot images instead of points
-			visualize_scatter_with_images_clusters(cams_embedded, cams_downscaled,
-												   fp=fp_save,
-												   cluster_ids=cl_labels, figsize=(45, 45), image_zoom=1.5)
-		elif 'hs' in image_type:
-			# scatter plot images instead of points
-			visualize_scatter_with_images_clusters(cams_embedded, cams_mean_downscaled,
-												   fp=fp_save,
-												   cluster_ids=cl_labels, figsize=(45, 45), image_zoom=1.5)
+	print("Clustering complete")
+
+	fp_save_ext = concatenate_list_data(fp_affinity.split('/')[-1].split('.')[0].split('_nclusters_affinity')[0])
+	fp_save = "figures/" + fp_save_ext + "_image_embedded_tsne_colored.png"
+
+	if 'rgb' in image_type:
+		# scatter plot images instead of points
+		visualize_scatter_with_images_clusters(cams_embedded, cams_downscaled,
+											   fp=fp_save,
+											   cluster_ids=cl_labels, figsize=(45, 45), image_zoom=1.6)
+	elif 'hs' in image_type:
+		# scatter plot images instead of points
+		visualize_scatter_with_images_clusters(cams_embedded, cams_mean_downscaled,
+											   fp=fp_save,
+											   cluster_ids=cl_labels, figsize=(45, 45), image_zoom=1.5)
+
+	print("Figures of strategy embedding created")
 
 
 def create_embedded_tsne_classificationrate_plots():
@@ -402,52 +414,58 @@ def create_embedded_tsne_classificationrate_plots():
 		if e.errno != errno.EEXIST:
 			raise
 
-	# number of clusters found from spectral clustering, must be set manually
-	configs = [['rgb', 'default', 5], ['rgb', 'rrr', 2], ['hs', 'default', 2], ['hs', 'rrr', 6]]
-	for config in configs:
-		image_type = config[0]
-		loss_type = config[1]
-		filenames, fp_affinity = get_filenames(image_type, loss_type)
-		info_array, cams, _, cams_mean, cams_mean_downscaled, cams_downscaled, _ = load_data(filenames, image_type)
-		with open(fp_affinity, 'rb') as handle:
-			data_dict = pickle.load(handle)
+	# # number of clusters found from spectral clustering, must be set manually
+	# configs = [['rgb', 'default', 5], ['rgb', 'rrr', 2], ['hs', 'default', 2], ['hs', 'rrr', 6]]
+	# for config in configs:
+	# 	image_type = config[0]
+	# 	loss_type = config[1]
+	image_type = args.dtype
+	loss_type = args.config
 
-		k = data_dict['n_clusters']
-		affinity_matrix = data_dict['affinity']
+	filenames, fp_affinity = get_filenames(image_type, loss_type)
+	info_array, cams, _, cams_mean, cams_mean_downscaled, cams_downscaled, _ = load_data(filenames, image_type)
+	with open(fp_affinity, 'rb') as handle:
+		data_dict = pickle.load(handle)
 
-		print("Creating plots for {} and {} with {} clusters".format(image_type, loss_type, k))
+	k = data_dict['n_clusters']
+	affinity_matrix = data_dict['affinity']
 
-		# t-SNE embedding 2D
-		cams_embedded = TSNE(n_components=2, random_state=seed, metric='precomputed',
-							 perplexity=PERPLEXITY,
-							 early_exaggeration=EARLY_EXAGGERATION).fit_transform(1 / (affinity_matrix.todense() + EPS))
+	print("Creating plots for {} and {} with {} clusters".format(image_type, loss_type, k))
 
-		print("T-SNE complete")
+	# t-SNE embedding 2D
+	cams_embedded = TSNE(n_components=2, random_state=seed, metric='precomputed',
+						 perplexity=PERPLEXITY,
+						 early_exaggeration=EARLY_EXAGGERATION).fit_transform(1 / (affinity_matrix.todense() + EPS))
 
-		# plot tsne embedding colored by true and predicted label
-		legend_array = ['gt: 0; pred: 0', 'gt: 0; pred: 1', 'gt: 1; pred: 0', 'gt: 1; pred: 1']
-		colors = []
-		for index in range(4):
-			colors.append(list(plt.cm.Set1(index)))
-		fig = plt.figure(figsize=(15, 15))
-		for gt in np.arange(0, 2):
-			for pred in np.arange(0, 2):
-				# indices that belong to cluster and to gt and pred
-				ids = np.where((info_array[:, 2] == gt) & (info_array[:, 3] == pred))
-				plt.scatter(cams_embedded[ids, 0], cams_embedded[ids, 1], s=100, color=colors[gt + (pred * 2)])
-		if 'hs' in image_type and 'rrr' in loss_type:
-			plt.legend(legend_array, prop={'size': 30}, loc='lower right')
-		plt.axis('off')
+	print("T-SNE complete")
 
-		fp_save_ext = concatenate_list_data(fp_affinity.split('/')[-1].split('.')[0].split('_affinity')[0])
-		fp_save = "figures/" + fp_save_ext + "_tsne_classrates.png"
-		fig.savefig(fp_save, bbox_inches='tight')
+	# plot tsne embedding colored by true and predicted label
+	legend_array = ['gt: 0; pred: 0', 'gt: 0; pred: 1', 'gt: 1; pred: 0', 'gt: 1; pred: 1']
+	colors = []
+	for index in range(4):
+		colors.append(list(plt.cm.Set1(index)))
+	fig = plt.figure(figsize=(15, 15))
+	for gt in np.arange(0, 2):
+		for pred in np.arange(0, 2):
+			# indices that belong to cluster and to gt and pred
+			ids = np.where((info_array[:, 2] == gt) & (info_array[:, 3] == pred))
+			plt.scatter(cams_embedded[ids, 0], cams_embedded[ids, 1], s=100, color=colors[gt + (pred * 2)])
+	if 'hs' in image_type and 'rrr' in loss_type:
+		plt.legend(legend_array, prop={'size': 30}, loc='lower right')
+	plt.axis('off')
 
-		plt.close()
+	fp_save_ext = concatenate_list_data(fp_affinity.split('/')[-1].split('.')[0].split('_affinity')[0])
+	fp_save = "figures/" + fp_save_ext + "_tsne_classrates.png"
+	fig.savefig(fp_save, bbox_inches='tight')
+
+	plt.close()
+
+	print("Figures of strategy embedding classification rate created")
+
 
 #----------------------------------------------------------------------------------------------------------------------#
 
 if __name__ == "__main__":
 	compute_save_affinity_matrices()
-	# create_save_image_embedded_tsne_plots()
-	# create_embedded_tsne_classificationrate_plots()
+	create_save_image_embedded_tsne_plots()
+	create_embedded_tsne_classificationrate_plots()

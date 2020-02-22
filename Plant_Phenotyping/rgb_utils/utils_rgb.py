@@ -157,9 +157,9 @@ def imread_from_fp_rescale_rotate_flatten(fplist, y=np.array([]), rescale_size=N
 	# final shuffle along first dim especially needed for when rotation is used
 	perm_ids = np.random.permutation(np.arange(0, data_flatten.shape[0]))
 	if y.size is not 0:
-		return data_flatten[perm_ids], y[perm_ids], perm_ids
+		return fplist[perm_ids], data_flatten[perm_ids], y[perm_ids], perm_ids
 	else:
-		return data_flatten[perm_ids], perm_ids
+		return fplist[perm_ids], data_flatten[perm_ids], perm_ids
 
 
 def imread_from_fp_rescale_rotate_flatten_returnmasks(fplist, fp_mask, y=np.array([]), rescale_size=None,
@@ -236,7 +236,7 @@ def imread_from_fp_rescale_rotate_flatten_returnmasks(fplist, fp_mask, y=np.arra
 
 	# final shuffle along first dim especially needed for when rotation is used
 	perm_ids = np.random.permutation(np.arange(0, data_flatten.shape[0]))
-	return data_flatten[perm_ids], masks_flatten[perm_ids], y[perm_ids], perm_ids
+	return fplist[perm_ids], data_flatten[perm_ids], masks_flatten[perm_ids], y[perm_ids], perm_ids
 
 
 # Use .frombytes instead of .fromarray.

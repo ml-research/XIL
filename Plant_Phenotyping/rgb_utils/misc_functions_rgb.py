@@ -52,7 +52,8 @@ def save_gradient_images(gradient, file_name):
     save_image(gradient, path_to_file)
 
 
-def save_class_activation_images(org_img, activation_map, fp_to_save, file_name, true_class, pred_class, edge_img=None):
+def save_class_activation_images(org_img, activation_map, fp_to_save, file_name, true_class, pred_class,
+                                 edge_img=None, detailed_plots=False):
     """
         Saves cam activation map and activation map on the original image
 
@@ -61,37 +62,45 @@ def save_class_activation_images(org_img, activation_map, fp_to_save, file_name,
         activation_map (numpy arr): Activation map (grayscale) 0-255
         file_name (str): File name of the exported image
     """
-    if not os.path.exists('../results'):
-        os.makedirs('../results')
     # Grayscale activation map
     if edge_img == None:
         heatmap, heatmap_on_image = apply_colormap_on_image(org_img, activation_map, 'viridis')
     else:
         heatmap, heatmap_on_image = apply_colormap_on_image(edge_img, activation_map, 'viridis')
 
-    fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(20,20))
-    ax[0, 0].imshow(org_img)
-    ax[0, 0].set_title('Original RGB', fontsize=30)
-    ax[0, 0].axis('off')
+    if detailed_plots:
+        fig, ax = plt.subplots(ncols=2, nrows=1, figsize=(20,20))
+        ax[0, 0].imshow(org_img)
+        ax[0, 0].set_title('Original RGB', fontsize=30)
+        ax[0, 0].axis('off')
 
-    ax[0, 1].imshow(activation_map, cmap='gray')
-    ax[0, 1].set_title('CAM Grayscale', fontsize=30)
-    ax[0, 1].axis('off')
+        ax[0, 1].imshow(activation_map, cmap='gray')
+        ax[0, 1].set_title('CAM Grayscale', fontsize=30)
+        ax[0, 1].axis('off')
 
-    im10 = ax[1, 0].imshow(heatmap)
-    ax[1, 0].set_title('CAM Heatmap', fontsize=30)
-    ax[1, 0].axis('off')
+        im10 = ax[1, 0].imshow(heatmap)
+        ax[1, 0].set_title('CAM Heatmap', fontsize=30)
+        ax[1, 0].axis('off')
 
-    divider = make_axes_locatable(ax[1, 0])
-    cax = divider.append_axes('right', size='5%', pad=0.05)
-    fig.colorbar(im10, cax=cax, orientation='vertical')
+        divider = make_axes_locatable(ax[1, 0])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        fig.colorbar(im10, cax=cax, orientation='vertical')
 
-    ax[1, 1].imshow(heatmap_on_image)
-    ax[1, 1].set_title('CAM Heatmap overlay', fontsize=30)
-    ax[1, 1].axis('off')
+        ax[1, 1].imshow(heatmap_on_image)
+        ax[1, 1].set_title('CAM Heatmap overlay', fontsize=30)
+        ax[1, 1].axis('off')
 
-    plt.suptitle('True Class: ' + str(true_class) + '; Pred Class: ' + str(pred_class) + '; CAM Class: ' +
-                 file_name.split('_')[-1], fontsize=30)
+        plt.suptitle('True Class: ' + str(true_class) + '; Pred Class: ' + str(pred_class) + '; CAM Class: ' +
+                     file_name.split('_')[-1], fontsize=30)
+
+    else:
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10, 5))
+        ax[0].imshow(org_img)
+        ax[0].axis('off')
+        ax[1].imshow(activation_map)
+        ax[1].imshow(edge_img, alpha=0.2)
+        ax[1].axis('off')
+        plt.subplots_adjust(left=0., right=1., bottom=0., top=1., wspace=0., hspace=0.)
 
     fig.savefig(fp_to_save, bbox_inches='tight')
     plt.close()
