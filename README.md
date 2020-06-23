@@ -1,7 +1,8 @@
 # XIL
-Repository for the Paper ``Right for the Wrong Scientific Reasons: Revising Deep Networks by Interacting with their 
-Explanations'' by Patrick Schramowski, Wolfgang Stammer, Stefano Teso, Anna Brugger, Franziska Herbert, Xiaoting Shao, 
+Repository for the Paper ``Making deep neural networks right for the right scientific reasons by interacting with their explanations'' by Patrick Schramowski, Wolfgang Stammer, Stefano Teso, Anna Brugger, Franziska Herbert, Xiaoting Shao, 
 Hans-Georg Luigs, Anne-Katrin Mahlein & Kristian Kersting.
+
+In the process of paper review we have generated a Code Ocean capsule found under: TODO.
 
 ## Plant Disease Detection Datasets
 TODO License \
